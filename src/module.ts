@@ -81,24 +81,30 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
     if (this.config.unregisterOnShutdown === true) await this.unregisterAllDevices();
   }
 
-  private updateValues(data: ValloxStatus) {
+  private async updateValues(data: ValloxStatus) {
     this.log.info('Received new Vallox data:', data);
   }
 
   private async discoverDevices() {
     this.log.info('Discovering devices...');
 
-    this.vallox = new ValloxDevice({ ip: this.config.ip as string, port: this.config.port as number }, this.updateValues);
+    if (!this.config.ip || !this.config.port) {
+      return;
+    }
+
+    this.vallox = new ValloxDevice({ ip: this.config.ip as string, port: this.config.port as number }, this.updateValues.bind(this));
 
     const valloxInfo = await this.vallox.getBasicInfo();
 
+    this.log.info('Vallox Info:', valloxInfo);
+
     const fan = new MatterbridgeEndpoint(fanDevice, { uniqueStorageKey: 'vallow-fan-' + valloxInfo.serial }, this.config.turnOnDebugMode as boolean)
       .createDefaultBridgedDeviceBasicInformationClusterServer(
-        valloxInfo.name,
+        'Vallox Ventilation Unit',
         valloxInfo.serial,
         this.matterbridge.aggregatorVendorId,
         'Vallox',
-        'Vallox Ventilation Unit',
+        valloxInfo.name,
         undefined,
         valloxInfo.softwareVersion ?? 'unknown',
       )
@@ -111,7 +117,7 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
         this.log.info(`Command off called on cluster ${data.cluster}`);
       })
       .addCommandHandler('step', (data) => {
-        this.log.info(`Command on called on cluster ${data.cluster}`);
+        this.log.info(`Command step called on cluster ${data.cluster}`);
       })
       .addCommandHandler('changeToMode', (data) => {
         this.log.info(`Command changeToMode called on cluster ${data.cluster}`);
@@ -123,11 +129,11 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
 
     const aqs = new MatterbridgeEndpoint(airQualitySensor, { uniqueStorageKey: 'vallow-aqs-' + valloxInfo.serial }, this.config.turnOnDebugMode as boolean)
       .createDefaultBridgedDeviceBasicInformationClusterServer(
-        valloxInfo.name,
+        'Vallox Air Quality Sensor',
         valloxInfo.serial,
         this.matterbridge.aggregatorVendorId,
         'Vallox',
-        'Vallox Air Quality Sensor',
+        valloxInfo.name,
         undefined,
         valloxInfo.softwareVersion ?? 'unknown',
       )
@@ -136,9 +142,6 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
       .addClusterServers([TemperatureMeasurement.Cluster.id, RelativeHumidityMeasurement.Cluster.id, CarbonDioxideConcentrationMeasurement.Cluster.id])
       .addCommandHandler('on', (data) => {
         this.log.info(`Command on called on cluster ${data.cluster}`);
-      })
-      .addCommandHandler('off', (data) => {
-        this.log.info(`Command off called on cluster ${data.cluster}`);
       })
       .addCommandHandler('off', (data) => {
         this.log.info(`Command off called on cluster ${data.cluster}`);

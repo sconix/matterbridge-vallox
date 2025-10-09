@@ -45,7 +45,7 @@ export class ValloxDevice {
     this.checkStatus();
 
     this.timer = setInterval(async () => {
-      this.checkStatus();
+      await this.checkStatus();
     }, 60000);
   }
 
@@ -61,11 +61,15 @@ export class ValloxDevice {
 
     return {
       name: ValloxModels[metrics['A_CYC_MACHINE_MODEL']] ?? 'Vallox Unknown Model',
-      serial: +(metrics['A_CYC_SERIAL_NUMBER_MSW'] << 16) + metrics['A_CYC_SERIAL_NUMBER_LSW'],
+      serial: ((metrics['A_CYC_SERIAL_NUMBER_MSW'] << 16) + metrics['A_CYC_SERIAL_NUMBER_LSW']).toString(),
 
       softwareVersion: [metrics['A_CYC_APPL_SW_VERSION_7'] / 256, metrics['A_CYC_APPL_SW_VERSION_8'] / 256, metrics['A_CYC_APPL_SW_VERSION_9'] / 256].join('.'),
     };
   }
+
+  public async changeMode(mode: string) {}
+
+  public async changeFanSpeed(speed: number) {}
 
   private async checkStatus() {
     const metrics = await this.valloxService.fetchMetrics(['A_CYC_RH_VALUE', 'A_CYC_FAN_SPEED', 'A_CYC_CO2_SENSOR_0', 'A_CYC_TEMP_SUPPLY_AIR']);
