@@ -1,0 +1,39 @@
+{
+  "title": "Matterbridge Vallox plugin",
+  "description": "matterbridge-vallox v. 1.0.0 by https://github.com/sconix",
+  "type": "object",
+  "required": ["ip", "port"],
+  "properties": {
+    "name": {
+      "description": "Plugin name",
+      "type": "string",
+      "readOnly": true,
+      "ui:widget": "hidden"
+    },
+    "type": {
+      "description": "Plugin type",
+      "type": "string",
+      "readOnly": true,
+      "ui:widget": "hidden"
+    },
+    "ip": {
+      "description": "IP address of the Vallox device",
+      "type": "string"
+    },
+    "port": {
+      "description": "Port to use for the connection (default: 80)",
+      "type": "integer"
+    },
+    "turnOnDebugMode": {
+      "description": "Enable the debug for the plugin (development only)",
+      "type": "boolean",
+      "default": false
+    },
+    "unregisterOnShutdown": {
+      "description": "Unregister all devices on shutdown (development only)",
+      "type": "boolean",
+      "default": false,
+      "ui:widget": "hidden"
+    }
+  }
+}

@@ -63,7 +63,7 @@ export default defineConfig([
   },
   {
     name: 'TypeScript Source Files',
-    files: ['src/**/*.ts'],
+    files: ['src/**/*.ts', 'src/**/*.d.ts'],
     ignores: ['src/**/*.test.ts', 'src/**/*.spec.ts'], // Ignore test files
     languageOptions: {
       parser: tseslint.parser,

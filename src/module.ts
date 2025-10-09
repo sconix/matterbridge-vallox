@@ -1,5 +1,8 @@
-import { Matterbridge, MatterbridgeDynamicPlatform, MatterbridgeEndpoint, onOffOutlet, PlatformConfig } from 'matterbridge';
+import { Matterbridge, MatterbridgeDynamicPlatform, MatterbridgeEndpoint, fanDevice, airQualitySensor, PlatformConfig } from 'matterbridge';
 import { AnsiLogger, LogLevel } from 'matterbridge/logger';
+import { TemperatureMeasurement, RelativeHumidityMeasurement, CarbonDioxideConcentrationMeasurement } from 'matterbridge/matter/clusters';
+
+import { ValloxDevice, ValloxStatus } from './device.js';
 
 /**
  * This is the standard interface for Matterbridge plugins.
@@ -17,6 +20,8 @@ export default function initializePlugin(matterbridge: Matterbridge, log: AnsiLo
 // Here we define the TemplatePlatform class, which extends the MatterbridgeDynamicPlatform.
 // If you want to create an Accessory platform plugin, you should extend the MatterbridgeAccessoryPlatform class instead.
 export class TemplatePlatform extends MatterbridgeDynamicPlatform {
+  vallox: ValloxDevice | null = null;
+
   constructor(matterbridge: Matterbridge, log: AnsiLogger, config: PlatformConfig) {
     // Always call super(matterbridge, log, config)
     super(matterbridge, log, config);
@@ -43,6 +48,8 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
 
     // Implements your own logic there
     await this.discoverDevices();
+
+    this.vallox?.startPolling();
   }
 
   override async onConfigure() {
@@ -50,6 +57,8 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
     await super.onConfigure();
 
     this.log.info('onConfigure called');
+
+    this.vallox?.stopPolling();
 
     // Configure all your devices. The persisted attributes need to be updated.
     for (const device of this.getDevices()) {
@@ -72,17 +81,27 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
     if (this.config.unregisterOnShutdown === true) await this.unregisterAllDevices();
   }
 
+  private updateValues(data: ValloxStatus) {
+    this.log.info('Received new Vallox data:', data);
+  }
+
   private async discoverDevices() {
     this.log.info('Discovering devices...');
-    // Implement device discovery logic here.
-    // For example, you might fetch devices from an API.
-    // and register them with the Matterbridge instance.
 
-    // Example: Create and register an outlet device
-    // If you want to create an Accessory platform plugin and your platform extends MatterbridgeAccessoryPlatform,
-    // instead of createDefaultBridgedDeviceBasicInformationClusterServer, call createDefaultBasicInformationClusterServer().
-    const outlet = new MatterbridgeEndpoint(onOffOutlet, { uniqueStorageKey: 'outlet1' })
-      .createDefaultBridgedDeviceBasicInformationClusterServer('Outlet', 'SN123456', this.matterbridge.aggregatorVendorId, 'Matterbridge', 'Matterbridge Outlet', 10000, '1.0.0')
+    this.vallox = new ValloxDevice({ ip: this.config.ip as string, port: this.config.port as number }, this.updateValues);
+
+    const valloxInfo = await this.vallox.getBasicInfo();
+
+    const fan = new MatterbridgeEndpoint(fanDevice, { uniqueStorageKey: 'vallow-fan-' + valloxInfo.serial }, this.config.turnOnDebugMode as boolean)
+      .createDefaultBridgedDeviceBasicInformationClusterServer(
+        valloxInfo.name,
+        valloxInfo.serial,
+        this.matterbridge.aggregatorVendorId,
+        'Vallox',
+        'Vallox Ventilation Unit',
+        undefined,
+        valloxInfo.softwareVersion ?? 'unknown',
+      )
       .createDefaultPowerSourceWiredClusterServer()
       .addRequiredClusterServers()
       .addCommandHandler('on', (data) => {
@@ -90,8 +109,41 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
       })
       .addCommandHandler('off', (data) => {
         this.log.info(`Command off called on cluster ${data.cluster}`);
+      })
+      .addCommandHandler('step', (data) => {
+        this.log.info(`Command on called on cluster ${data.cluster}`);
+      })
+      .addCommandHandler('changeToMode', (data) => {
+        this.log.info(`Command changeToMode called on cluster ${data.cluster}`);
       });
 
-    await this.registerDevice(outlet);
+    await this.registerDevice(fan);
+
+    // TODO: Add checks what sensors are actually in the unit
+
+    const aqs = new MatterbridgeEndpoint(airQualitySensor, { uniqueStorageKey: 'vallow-aqs-' + valloxInfo.serial }, this.config.turnOnDebugMode as boolean)
+      .createDefaultBridgedDeviceBasicInformationClusterServer(
+        valloxInfo.name,
+        valloxInfo.serial,
+        this.matterbridge.aggregatorVendorId,
+        'Vallox',
+        'Vallox Air Quality Sensor',
+        undefined,
+        valloxInfo.softwareVersion ?? 'unknown',
+      )
+      .createDefaultPowerSourceWiredClusterServer()
+      .addRequiredClusterServers()
+      .addClusterServers([TemperatureMeasurement.Cluster.id, RelativeHumidityMeasurement.Cluster.id, CarbonDioxideConcentrationMeasurement.Cluster.id])
+      .addCommandHandler('on', (data) => {
+        this.log.info(`Command on called on cluster ${data.cluster}`);
+      })
+      .addCommandHandler('off', (data) => {
+        this.log.info(`Command off called on cluster ${data.cluster}`);
+      })
+      .addCommandHandler('off', (data) => {
+        this.log.info(`Command off called on cluster ${data.cluster}`);
+      });
+
+    await this.registerDevice(aqs);
   }
 }

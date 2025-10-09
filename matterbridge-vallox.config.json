@@ -1,0 +1,8 @@
+{
+  "name": "matterbridge-vallox",
+  "type": "DynamicPlatform",
+  "ip": "",
+  "port": "80",
+  "turnOnDebugMod": false,
+  "unregisterOnShutdown": false
+}

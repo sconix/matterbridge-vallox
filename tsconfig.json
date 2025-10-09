@@ -1,29 +1,39 @@
 {
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts"
+  ],
+  "exclude": [
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/__test__/*"
+  ],
   "compilerOptions": {
-    "incremental": true,
-    "composite": true,
-    "target": "esnext",
     "lib": ["ESNext"],
-    "module": "nodenext",
+    
+    "outDir": "./dist",
     "rootDir": "./src",
+
+    "target": "esnext",
+    "module": "nodenext",
     "moduleResolution": "nodenext",
-    "resolveJsonModule": true,
+    
+    "strict": true,
     "allowJs": true,
     "checkJs": true,
-    "declaration": true,
-    "declarationMap": true,
     "sourceMap": true,
-    "outDir": "./dist",
+    "composite": true,
+    "incremental": true,
+    "declaration": true,
+    "alwaysStrict": true,
+    "skipLibCheck": true,
+    "noImplicitAny": true,
+    "declarationMap": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "noImplicitOverride": true,
     "preserveConstEnums": true,
     "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "noImplicitAny": true,
-    "alwaysStrict": true,
-    "noImplicitOverride": true,
-    "skipLibCheck": true
-  },
-  "include": ["src/**/*.ts"],
-  "exclude": ["**/*.spec.ts", "**/*.test.ts", "**/__test__/*"]
+    "forceConsistentCasingInFileNames": true
+  }
 }
