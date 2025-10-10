@@ -8,6 +8,7 @@ export type ValloxConfig = {
 };
 
 export type ValloxStatus = {
+  power: boolean;
   fanMode?: string;
   fanSpeed?: number;
   temperature?: number;
@@ -35,11 +36,11 @@ export class ValloxDevice {
     }
   }
 
-  public startPolling() {
-    this.checkStatus();
+  public async startPolling() {
+    this.updateCallback(await this.getStatusInfo());
 
     this.timer = setInterval(async () => {
-      await this.checkStatus();
+      this.updateCallback(await this.getStatusInfo());
     }, 60000);
   }
 
@@ -61,23 +62,74 @@ export class ValloxDevice {
     };
   }
 
-  public async changeMode(mode: string) {}
-
-  public async changeFanSpeed(speed: number) {}
-
-  private async checkStatus() {
-    const metrics = await this.valloxService.fetchMetrics(['A_CYC_RH_VALUE', 'A_CYC_FAN_SPEED', 'A_CYC_CO2_SENSOR_0', 'A_CYC_TEMP_SUPPLY_AIR']);
+  public async getStatusInfo() {
+    const metrics = await this.valloxService.fetchMetrics(['A_CYC_MODE', 'A_CYC_RH_VALUE', 'A_CYC_FAN_SPEED', 'A_CYC_CO2_SENSOR_0', 'A_CYC_TEMP_SUPPLY_AIR']);
 
     const profile = await this.valloxService.getProfile();
 
     const profiles = Object.assign({}, ...Object.entries(this.valloxService.PROFILES).map(([a, b]) => ({ [b as string]: a })));
 
-    this.updateCallback({
-      fanMode: profiles[profile] ?? 'Off',
+    return {
+      power: metrics['A_CYC_MODE'] === 0,
+      fanMode: profiles[profile] ?? 'OFF',
       fanSpeed: metrics['A_CYC_FAN_SPEED'],
       temperature: metrics['A_CYC_TEMP_SUPPLY_AIR'],
       relativeHumidity: metrics['A_CYC_RH_VALUE'],
       carbonDioxideConcentration: metrics['A_CYC_CO2_SENSOR_0'],
-    });
+    };
+  }
+
+  public async getModeSpeeds() {
+    const metrics = await this.valloxService.fetchMetrics(['A_CYC_HOME_SPEED_SETTING', 'A_CYC_AWAY_SPEED_SETTING', 'A_CYC_BOOST_SPEED_SETTING']);
+
+    return {
+      HOME: metrics['A_CYC_HOME_SPEED_SETTING'],
+      AWAY: metrics['A_CYC_AWAY_SPEED_SETTING'],
+      BOOST: metrics['A_CYC_BOOST_SPEED_SETTING'],
+    };
+  }
+
+  public async changeFanMode(mode: string) {
+    if (mode === 'OFF') {
+      /*
+     
+             this.valloxService.setValues({
+             'A_CYC_MODE': 5
+            
+             });
+*/
+    } else {
+      /*
+      this.valloxService.setValues({
+             'A_CYC_MODE': 0
+            
+             });
+
+       this.valloxService.setProfile(this.valloxService.PROFILES[mode] ?? 'HOME');
+
+      */
+    }
+
+    this.updateCallback(await this.getStatusInfo());
+  }
+
+  public async changeFanSpeed(speed: number) {
+    const speeds = await this.getModeSpeeds();
+
+    const modes = Object.fromEntries(Object.entries(speeds).map((entry) => entry.reverse()));
+
+    if (speed === 0) {
+      await this.changeFanMode('OFF');
+    } else if (modes[speed]) {
+      await this.changeFanMode(modes[speed]);
+    } else {
+      /* this.valloxService.setValues({
+  
+EXT_EXTRA_EXTR_FAN: speed,
+EXT_EXTRA_SUPP_FAN: speed
+    });*/
+    }
+
+    this.updateCallback(await this.getStatusInfo());
   }
 }

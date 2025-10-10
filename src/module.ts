@@ -4,13 +4,6 @@ import { Identify, Groups, AirQuality, FanControl, TemperatureMeasurement, Relat
 
 import { ValloxDevice, ValloxStatus } from './device.js';
 
-const modesMapping = {
-  NONE: FanControl.FanMode.Off,
-  HOME: FanControl.FanMode.Medium,
-  AWAY: FanControl.FanMode.Low,
-  BOOST: FanControl.FanMode.High,
-};
-
 /**
  * This is the standard interface for Matterbridge plugins.
  * Each plugin should export a default function that follows this signature.
@@ -94,33 +87,49 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
   private async updateValues(data: ValloxStatus) {
     this.log.info(`Received new Vallox data: ${JSON.stringify(data)}`);
 
-    this.fan?.setAttribute(FanControl.Cluster.id, 'percentSetting', data.fanSpeed ?? 50, this.log);
+    if (data.power) {
+      const matterMode = await this.valloxSpeedToMatterMode(data.fanSpeed);
 
-    this.fan?.setAttribute(FanControl.Cluster.id, 'fanMode', modesMapping[data.fanMode as keyof typeof modesMapping] ?? FanControl.FanMode.Medium, this.log);
+      this.fan?.setAttribute(FanControl.Cluster.id, 'fanMode', matterMode, this.log);
 
-    const airQuality =
-      data.carbonDioxideConcentration && data.carbonDioxideConcentration > 0
-        ? data.carbonDioxideConcentration < 800
-          ? AirQuality.AirQualityEnum.Good
-          : data.carbonDioxideConcentration < 1200
-            ? AirQuality.AirQualityEnum.Moderate
-            : data.carbonDioxideConcentration < 1800
-              ? AirQuality.AirQualityEnum.Poor
-              : data.carbonDioxideConcentration < 2100
-                ? AirQuality.AirQualityEnum.VeryPoor
-                : AirQuality.AirQualityEnum.ExtremelyPoor
-        : AirQuality.AirQualityEnum.Unknown;
+      this.fan?.setAttribute(FanControl.Cluster.id, 'percentSetting', data.fanSpeed ?? 50, this.log);
 
-    this.aqs?.setAttribute(AirQuality.Cluster.id, 'airQuality', airQuality, this.log);
+      const airQuality =
+        data.carbonDioxideConcentration && data.carbonDioxideConcentration > 0
+          ? data.carbonDioxideConcentration < 800
+            ? AirQuality.AirQualityEnum.Good
+            : data.carbonDioxideConcentration < 1200
+              ? AirQuality.AirQualityEnum.Moderate
+              : data.carbonDioxideConcentration < 1800
+                ? AirQuality.AirQualityEnum.Poor
+                : data.carbonDioxideConcentration < 2100
+                  ? AirQuality.AirQualityEnum.VeryPoor
+                  : AirQuality.AirQualityEnum.ExtremelyPoor
+          : AirQuality.AirQualityEnum.Unknown;
 
-    this.aqs?.setAttribute(TemperatureMeasurement.Cluster.id, 'measuredValue', (data.temperature ?? 0) * 100, this.log);
+      this.aqs?.setAttribute(AirQuality.Cluster.id, 'airQuality', airQuality, this.log);
 
-    this.aqs?.setAttribute(RelativeHumidityMeasurement.Cluster.id, 'measuredValue', (data.relativeHumidity ?? 0) * 100, this.log);
+      this.aqs?.setAttribute(TemperatureMeasurement.Cluster.id, 'measuredValue', (data.temperature ?? 0) * 100, this.log);
 
-    this.aqs?.setAttribute(CarbonDioxideConcentrationMeasurement.Cluster.id, 'measuredValue', data.carbonDioxideConcentration ?? 0, this.log);
+      this.aqs?.setAttribute(RelativeHumidityMeasurement.Cluster.id, 'measuredValue', (data.relativeHumidity ?? 0) * 100, this.log);
 
-    this.fan?.setAttribute('BridgedDeviceBasicInformation', 'reachable', true, this.log);
-    this.aqs?.setAttribute('BridgedDeviceBasicInformation', 'reachable', true, this.log);
+      this.aqs?.setAttribute(CarbonDioxideConcentrationMeasurement.Cluster.id, 'measuredValue', data.carbonDioxideConcentration ?? 0, this.log);
+    } else {
+      this.fan?.setAttribute(FanControl.Cluster.id, 'fanMode', FanControl.FanMode.Off, this.log);
+
+      this.fan?.setAttribute(FanControl.Cluster.id, 'percentSetting', 0, this.log);
+
+      this.aqs?.setAttribute(AirQuality.Cluster.id, 'airQuality', null, this.log);
+
+      this.aqs?.setAttribute(TemperatureMeasurement.Cluster.id, 'measuredValue', null, this.log);
+
+      this.aqs?.setAttribute(RelativeHumidityMeasurement.Cluster.id, 'measuredValue', null, this.log);
+
+      this.aqs?.setAttribute(CarbonDioxideConcentrationMeasurement.Cluster.id, 'measuredValue', null, this.log);
+    }
+
+    this.fan?.setAttribute('BridgedDeviceBasicInformation', 'reachable', data.power, this.log);
+    this.aqs?.setAttribute('BridgedDeviceBasicInformation', 'reachable', data.power, this.log);
   }
 
   private async discoverDevices() {
@@ -148,23 +157,32 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
       )
       .createDefaultPowerSourceWiredClusterServer()
       .addClusterServers([Identify.Cluster.id, Groups.Cluster.id])
-      .createBaseFanControlClusterServer() // We dont want auto mode
-      .addCommandHandler('on', (data) => {
-        this.log.info(`Command on called on cluster ${data.cluster} ${JSON.stringify(data)}`);
-      })
-      .addCommandHandler('off', (data) => {
-        this.log.info(`Command off called on cluster ${data.cluster} ${JSON.stringify(data)}`);
-      })
-      .addCommandHandler('step', (data) => {
-        this.log.info(`Command step called on cluster ${data.cluster} ${JSON.stringify(data)}`);
-      })
-      .addCommandHandler('changeToMode', (data) => {
-        this.log.info(`Command changeToMode called on cluster ${data.cluster} ${JSON.stringify(data)}`);
-      });
+      .createBaseFanControlClusterServer(); // We dont want auto mode
+
+    this.fan.subscribeAttribute(FanControl.Cluster.id, 'fanMode', async (newValue, oldValue, context) => {
+      if (newValue === null || context.offline === true) {
+        return;
+      }
+
+      const newMode = this.matterModeToValloxMode(newValue);
+
+      await this.vallox?.changeFanMode(newMode);
+
+      this.log.info(`Fan mode changed to: ${newValue} from ${oldValue}`);
+    });
+    this.fan.subscribeAttribute(FanControl.Cluster.id, 'percentSetting', async (newValue, oldValue, context) => {
+      if (newValue === null || context.offline === true) {
+        return;
+      }
+
+      await this.vallox?.changeFanSpeed(newValue);
+
+      this.log.info(`Fan speed changed to: ${newValue} from ${oldValue}`);
+    });
 
     await this.registerDevice(this.fan);
 
-    // TODO: Add checks what sensors are actually in the unit
+    // TODO: Add checks what sensors are actually in the unit, or is there always RH and CO2?
 
     this.aqs = new MatterbridgeEndpoint(airQualitySensor, { uniqueStorageKey: 'vallow-aqs-' + valloxInfo.serial }, this.config.turnOnDebugMode as boolean)
       .createDefaultBridgedDeviceBasicInformationClusterServer(
@@ -178,14 +196,35 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
       )
       .createDefaultPowerSourceWiredClusterServer()
       .addRequiredClusterServers()
-      .addClusterServers([TemperatureMeasurement.Cluster.id, RelativeHumidityMeasurement.Cluster.id, CarbonDioxideConcentrationMeasurement.Cluster.id])
-      .addCommandHandler('on', (data) => {
-        this.log.info(`Command on called on cluster ${data.cluster} ${JSON.stringify(data)}`);
-      })
-      .addCommandHandler('off', (data) => {
-        this.log.info(`Command off called on cluster ${data.cluster} ${JSON.stringify(data)}`);
-      });
+      .addClusterServers([TemperatureMeasurement.Cluster.id, RelativeHumidityMeasurement.Cluster.id, CarbonDioxideConcentrationMeasurement.Cluster.id]);
 
     await this.registerDevice(this.aqs);
+  }
+
+  private matterModeToValloxMode(mode: FanControl.FanMode): string {
+    switch (mode) {
+      case FanControl.FanMode.Off:
+        return 'OFF';
+      case FanControl.FanMode.Low:
+        return 'AWAY';
+      case FanControl.FanMode.Medium:
+        return 'HOME';
+      case FanControl.FanMode.High:
+        return 'BOOST';
+      default:
+        return 'HOME';
+    }
+  }
+
+  private async valloxSpeedToMatterMode(speed: number | undefined): Promise<FanControl.FanMode> {
+    if (!speed) {
+      return FanControl.FanMode.Off;
+    } else {
+      const valloxSpeeds = await this.vallox?.getModeSpeeds();
+
+      const matterSpeeds = { Low: valloxSpeeds?.AWAY ?? 20, Medium: valloxSpeeds?.HOME ?? 40, High: valloxSpeeds?.BOOST ?? 60 };
+
+      return !speed <= matterSpeeds.Low ? FanControl.FanMode.Low : speed <= matterSpeeds.Medium ? FanControl.FanMode.Medium : FanControl.FanMode.High;
+    }
   }
 }
