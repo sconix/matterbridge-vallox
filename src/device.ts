@@ -91,43 +91,30 @@ export class ValloxDevice {
 
   public async changeFanMode(mode: string) {
     if (mode === 'OFF') {
-      /*
-     
-             this.valloxService.setValues({
-             'A_CYC_MODE': 5
-            
-             });
-*/
-    } else {
-      /*
       this.valloxService.setValues({
-             'A_CYC_MODE': 0
-            
-             });
+        A_CYC_MODE: 5,
+      });
+    } else {
+      this.valloxService.setValues({
+        A_CYC_MODE: 0,
+      });
 
-       this.valloxService.setProfile(this.valloxService.PROFILES[mode] ?? 'HOME');
-
-      */
+      this.valloxService.setProfile(this.valloxService.PROFILES[mode] ?? 'HOME');
     }
 
     this.updateCallback(await this.getStatusInfo());
   }
 
   public async changeFanSpeed(speed: number) {
-    const speeds = await this.getModeSpeeds();
-
-    const modes = Object.fromEntries(Object.entries(speeds).map((entry) => entry.reverse()));
-
     if (speed === 0) {
       await this.changeFanMode('OFF');
-    } else if (modes[speed]) {
-      await this.changeFanMode(modes[speed]);
     } else {
-      /* this.valloxService.setValues({
-  
-EXT_EXTRA_EXTR_FAN: speed,
-EXT_EXTRA_SUPP_FAN: speed
-    });*/
+      await this.valloxService.setValues({
+        A_CYC_FIREPLACE_EXTR_FAN: speed,
+        A_CYC_FIREPLACE_SUPP_FAN: speed,
+      });
+
+      await this.changeFanMode('FIREPLACE');
     }
 
     this.updateCallback(await this.getStatusInfo());
