@@ -2,12 +2,6 @@ import Vallox from '@danielbayerlein/vallox-api';
 
 import { ValloxModels } from './constants.js';
 
-const modes = {
-  NONE: 'Off',
-  HOME: 'Med',
-  AWAY: 'Low',
-  BOOST: 'High',
-};
 export type ValloxConfig = {
   ip: string;
   port: number;
@@ -79,7 +73,7 @@ export class ValloxDevice {
     const profiles = Object.assign({}, ...Object.entries(this.valloxService.PROFILES).map(([a, b]) => ({ [b as string]: a })));
 
     this.updateCallback({
-      fanMode: modes[profiles[profile] as keyof typeof modes] ?? 'Off',
+      fanMode: profiles[profile] ?? 'Off',
       fanSpeed: metrics['A_CYC_FAN_SPEED'],
       temperature: metrics['A_CYC_TEMP_SUPPLY_AIR'],
       relativeHumidity: metrics['A_CYC_RH_VALUE'],

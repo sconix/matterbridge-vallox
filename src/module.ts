@@ -1,8 +1,15 @@
 import { Matterbridge, MatterbridgeDynamicPlatform, MatterbridgeEndpoint, fanDevice, airQualitySensor, PlatformConfig } from 'matterbridge';
 import { AnsiLogger, LogLevel } from 'matterbridge/logger';
-import { TemperatureMeasurement, RelativeHumidityMeasurement, CarbonDioxideConcentrationMeasurement } from 'matterbridge/matter/clusters';
+import { Identify, Groups, AirQuality, FanControl, TemperatureMeasurement, RelativeHumidityMeasurement, CarbonDioxideConcentrationMeasurement } from 'matterbridge/matter/clusters';
 
 import { ValloxDevice, ValloxStatus } from './device.js';
+
+const modesMapping = {
+  NONE: FanControl.FanMode.Off,
+  HOME: FanControl.FanMode.Medium,
+  AWAY: FanControl.FanMode.Low,
+  BOOST: FanControl.FanMode.High,
+};
 
 /**
  * This is the standard interface for Matterbridge plugins.
@@ -20,7 +27,10 @@ export default function initializePlugin(matterbridge: Matterbridge, log: AnsiLo
 // Here we define the TemplatePlatform class, which extends the MatterbridgeDynamicPlatform.
 // If you want to create an Accessory platform plugin, you should extend the MatterbridgeAccessoryPlatform class instead.
 export class TemplatePlatform extends MatterbridgeDynamicPlatform {
-  vallox: ValloxDevice | null = null;
+  aqs: MatterbridgeEndpoint | null = null;
+  fan: MatterbridgeEndpoint | null = null;
+
+  vallox: ValloxDevice | undefined = undefined;
 
   constructor(matterbridge: Matterbridge, log: AnsiLogger, config: PlatformConfig) {
     // Always call super(matterbridge, log, config)
@@ -82,7 +92,35 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
   }
 
   private async updateValues(data: ValloxStatus) {
-    this.log.info('Received new Vallox data:', data);
+    this.log.info(`Received new Vallox data: ${JSON.stringify(data)}`);
+
+    this.fan?.setAttribute(FanControl.Cluster.id, 'percentSetting', data.fanSpeed ?? 50, this.log);
+
+    this.fan?.setAttribute(FanControl.Cluster.id, 'fanMode', modesMapping[data.fanMode as keyof typeof modesMapping] ?? FanControl.FanMode.Medium, this.log);
+
+    const airQuality =
+      data.carbonDioxideConcentration && data.carbonDioxideConcentration > 0
+        ? data.carbonDioxideConcentration < 800
+          ? AirQuality.AirQualityEnum.Good
+          : data.carbonDioxideConcentration < 1200
+            ? AirQuality.AirQualityEnum.Moderate
+            : data.carbonDioxideConcentration < 1800
+              ? AirQuality.AirQualityEnum.Poor
+              : data.carbonDioxideConcentration < 2100
+                ? AirQuality.AirQualityEnum.VeryPoor
+                : AirQuality.AirQualityEnum.ExtremelyPoor
+        : AirQuality.AirQualityEnum.Unknown;
+
+    this.aqs?.setAttribute(AirQuality.Cluster.id, 'airQuality', airQuality, this.log);
+
+    this.aqs?.setAttribute(TemperatureMeasurement.Cluster.id, 'measuredValue', (data.temperature ?? 0) * 100, this.log);
+
+    this.aqs?.setAttribute(RelativeHumidityMeasurement.Cluster.id, 'measuredValue', (data.relativeHumidity ?? 0) * 100, this.log);
+
+    this.aqs?.setAttribute(CarbonDioxideConcentrationMeasurement.Cluster.id, 'measuredValue', data.carbonDioxideConcentration ?? 0, this.log);
+
+    this.fan?.setAttribute('BridgedDeviceBasicInformation', 'reachable', true, this.log);
+    this.aqs?.setAttribute('BridgedDeviceBasicInformation', 'reachable', true, this.log);
   }
 
   private async discoverDevices() {
@@ -96,9 +134,9 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
 
     const valloxInfo = await this.vallox.getBasicInfo();
 
-    this.log.info('Vallox Info:', valloxInfo);
+    this.log.info(`Vallox Info: ${JSON.stringify(valloxInfo)}`);
 
-    const fan = new MatterbridgeEndpoint(fanDevice, { uniqueStorageKey: 'vallow-fan-' + valloxInfo.serial }, this.config.turnOnDebugMode as boolean)
+    this.fan = new MatterbridgeEndpoint(fanDevice, { uniqueStorageKey: 'vallow-fan-' + valloxInfo.serial }, this.config.turnOnDebugMode as boolean)
       .createDefaultBridgedDeviceBasicInformationClusterServer(
         'Vallox Ventilation Unit',
         valloxInfo.serial,
@@ -109,25 +147,26 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
         valloxInfo.softwareVersion ?? 'unknown',
       )
       .createDefaultPowerSourceWiredClusterServer()
-      .addRequiredClusterServers()
+      .addClusterServers([Identify.Cluster.id, Groups.Cluster.id])
+      .createBaseFanControlClusterServer() // We dont want auto mode
       .addCommandHandler('on', (data) => {
-        this.log.info(`Command on called on cluster ${data.cluster}`);
+        this.log.info(`Command on called on cluster ${data.cluster} ${JSON.stringify(data)}`);
       })
       .addCommandHandler('off', (data) => {
-        this.log.info(`Command off called on cluster ${data.cluster}`);
+        this.log.info(`Command off called on cluster ${data.cluster} ${JSON.stringify(data)}`);
       })
       .addCommandHandler('step', (data) => {
-        this.log.info(`Command step called on cluster ${data.cluster}`);
+        this.log.info(`Command step called on cluster ${data.cluster} ${JSON.stringify(data)}`);
       })
       .addCommandHandler('changeToMode', (data) => {
-        this.log.info(`Command changeToMode called on cluster ${data.cluster}`);
+        this.log.info(`Command changeToMode called on cluster ${data.cluster} ${JSON.stringify(data)}`);
       });
 
-    await this.registerDevice(fan);
+    await this.registerDevice(this.fan);
 
     // TODO: Add checks what sensors are actually in the unit
 
-    const aqs = new MatterbridgeEndpoint(airQualitySensor, { uniqueStorageKey: 'vallow-aqs-' + valloxInfo.serial }, this.config.turnOnDebugMode as boolean)
+    this.aqs = new MatterbridgeEndpoint(airQualitySensor, { uniqueStorageKey: 'vallow-aqs-' + valloxInfo.serial }, this.config.turnOnDebugMode as boolean)
       .createDefaultBridgedDeviceBasicInformationClusterServer(
         'Vallox Air Quality Sensor',
         valloxInfo.serial,
@@ -141,12 +180,12 @@ export class TemplatePlatform extends MatterbridgeDynamicPlatform {
       .addRequiredClusterServers()
       .addClusterServers([TemperatureMeasurement.Cluster.id, RelativeHumidityMeasurement.Cluster.id, CarbonDioxideConcentrationMeasurement.Cluster.id])
       .addCommandHandler('on', (data) => {
-        this.log.info(`Command on called on cluster ${data.cluster}`);
+        this.log.info(`Command on called on cluster ${data.cluster} ${JSON.stringify(data)}`);
       })
       .addCommandHandler('off', (data) => {
-        this.log.info(`Command off called on cluster ${data.cluster}`);
+        this.log.info(`Command off called on cluster ${data.cluster} ${JSON.stringify(data)}`);
       });
 
-    await this.registerDevice(aqs);
+    await this.registerDevice(this.aqs);
   }
 }
